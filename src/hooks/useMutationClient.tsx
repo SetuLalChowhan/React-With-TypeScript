@@ -1,24 +1,42 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "react-toastify";
-import { useNavigation, useNavigate } from "react-router-dom";
+/* eslint-disable react-hooks/rules-of-hooks */
+import {
+  useMutation,
+  useQueryClient,
+  UseMutationResult,
+} from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import useAxiosPublic from "./useAxiosPublic";
 import useAxiosSecure from "./useAxiosSecure";
-import { useAuthStore } from "@/providers/useAuthStore";
-import { useValueStore } from "@/providers/useState";
+import { useDispatch } from "react-redux";
+import {
+  setResetToken,
+  setApiError as setUiApiError,
+} from "@/redux/slices/uiSlice";
+import { setCredentials } from "@/redux/slices/authSlice";
+import { toast } from "react-toastify";
+import { AxiosResponse, AxiosInstance } from "axios";
 
-type Method = "post" | "put" | "delete" | "patch";
-
-type MutationOptions = {
+// --- Types ---
+interface MutationParams {
   url: string;
-  method?: Method;
+  method?: "post" | "put" | "patch" | "delete";
   isPrivate?: boolean;
-  invalidateKeys?: string[][];
+  invalidateKeys?: any[][];
   successMessage?: string;
+  errorMessage?: string;
   redirectTo?: string;
-  isLogin?: boolean;
   onSuccess?: (data: any) => void;
   onError?: (error: any) => void;
-};
+  isLogin?: boolean;
+  resetFunction?: () => void;
+  setImages?: (images: any[]) => void;
+  externalErrorSetter?: (error: string[] | null) => void;
+}
+
+interface MutationData {
+  data?: any;
+  config?: any;
+}
 
 const useMutationClient = ({
   url,
@@ -26,69 +44,95 @@ const useMutationClient = ({
   isPrivate = false,
   invalidateKeys = [],
   successMessage = "Success",
+  errorMessage,
   redirectTo,
-  isLogin = false,
   onSuccess,
   onError,
-}: MutationOptions) => {
+  isLogin = false,
+  resetFunction,
+  setImages,
+  externalErrorSetter,
+}: MutationParams): UseMutationResult<
+  AxiosResponse<any>,
+  any,
+  MutationData
+> => {
   const queryClient = useQueryClient();
-  const client = isPrivate ? useAxiosSecure() : useAxiosPublic();
+  const dispatch = useDispatch();
+  const client: AxiosInstance = isPrivate ? useAxiosSecure() : useAxiosPublic();
   const navigate = useNavigate();
-  const { saveAuthData } = useAuthStore();
-  const {setResetToken} =useValueStore()
 
-  const mutation = useMutation({
-    mutationFn: async (payload?: any) => {
+  const setApiError = (error: string[] | null) => {
+    if (externalErrorSetter) {
+      externalErrorSetter(error);
+    } else {
+      dispatch(setUiApiError(error));
+    }
+  };
+
+  return useMutation({
+    mutationFn: async ({ data, config }: MutationData) => {
+      setApiError(null);
       if (method === "delete") {
-        return client.delete(url);
+        return await client.delete(url, config);
       }
-      return client[method](url, payload);
+      return await client[method](url, data, config);
     },
 
-    onSuccess: (res: any) => {
-      const data = res?.data;
-
+    onSuccess: (res) => {
+      const data = res?.data || res;
       toast.success(data?.message || successMessage);
 
-      if (isLogin && data?.user) {
-        saveAuthData(data?.accessToken, data?.user);
+      // 🔐 Login handling
+      if (isLogin) {
+        const token = data.token || data.access_token;
+        const user = data.userData || data.user;
+
+        if (token) {
+          dispatch(setCredentials({ token, user }));
+          // Correct Way: Invalidate the user profile query to trigger a re-fetch
+          queryClient.invalidateQueries({ queryKey: ["userProfile"] });
+        }
       }
 
+      // 🔑 Password reset handling
       if (data?.resetKey) {
-        setResetToken(data.resetKey);
+        dispatch(setResetToken(data.resetKey));
       }
 
-      invalidateKeys.forEach((key) =>
-        queryClient.invalidateQueries({ queryKey: key })
-      );
+      // ♻️ Invalidate queries
+      invalidateKeys.forEach((key) => {
+        queryClient.invalidateQueries({ queryKey: key });
+      });
 
       if (redirectTo) navigate(redirectTo);
+
+      setApiError(null);
+      resetFunction?.();
+      setImages?.([]);
 
       onSuccess?.(data);
     },
 
     onError: (error: any) => {
-      const message =
-        error?.response?.data?.message ||
-        error.message ||
-        "Something went wrong";
+      const responseData = error?.response?.data;
+      let messages: string[] = [];
 
-      toast.error(message);
+      if (responseData?.errors) {
+        messages = Object.values(responseData.errors).flat() as string[];
+      } else {
+        messages = [
+          responseData?.message ||
+            errorMessage ||
+            error?.message ||
+            "Something went wrong",
+        ];
+      }
+
+      setApiError(messages);
       onError?.(error);
     },
   });
-
-  return mutation;
 };
 
 export default useMutationClient;
-// const login = useMutationClient({
-//   url: "/auth/login",
-//   isLogin: true,
-//   redirectTo: "/dashboard",
-// });
-
-// login.mutate({
-//   email: "test@gmail.com",
-//   password: "123456",
-// });
