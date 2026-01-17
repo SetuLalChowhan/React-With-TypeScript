@@ -3,8 +3,10 @@ import { Outlet, ScrollRestoration, useLocation } from "react-router-dom";
 import CommonNavbar from "../pages/admin/CommonNavbar";
 import SideBar, { type SidebarItem } from "../pages/admin/SideBar";
 import { MdDashboard } from "react-icons/md";
+import useUserProfile from "@/hooks/fetchUserProfile";
 
 const AdminLayout: React.FC = () => {
+    useUserProfile();
   const [open, setOpen] = useState(false);
   const location = useLocation();
 

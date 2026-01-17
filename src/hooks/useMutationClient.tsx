@@ -11,8 +11,9 @@ import { useDispatch } from "react-redux";
 import {
   setResetToken,
   setApiError as setUiApiError,
+  setUser,
 } from "@/redux/slices/uiSlice";
-import { setCredentials } from "@/redux/slices/authSlice";
+import { setToken} from "@/redux/slices/authSlice";
 import { toast } from "react-toastify";
 import { AxiosResponse, AxiosInstance } from "axios";
 
@@ -84,14 +85,15 @@ const useMutationClient = ({
       toast.success(data?.message || successMessage);
 
       // 🔐 Login handling
-      if (isLogin) {
+          if (isLogin) {
         const token = data.token || data.access_token;
         const user = data.userData || data.user;
 
         if (token) {
-          dispatch(setCredentials({ token, user }));
-          // Correct Way: Invalidate the user profile query to trigger a re-fetch
-          queryClient.invalidateQueries({ queryKey: ["userProfile"] });
+          dispatch(setToken(token));
+        }
+        if (user) {
+          dispatch(setUser(user));
         }
       }
 
